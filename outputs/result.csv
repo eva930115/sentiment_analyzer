@@ -1,0 +1,6 @@
+text,text_clean,predicted
+I love this product!,i love this product,1
+This is awful.,this is awful,0
+Not sure how I feel.,not sure how i feel,0
+Very helpful and clear.,very helpful and clear,1
+Worst service ever.,worst service ever,0
