@@ -1,63 +1,45 @@
-# analyze.py
-
 import pandas as pd
-import joblib
-import matplotlib.pyplot as plt
-import sys
-import re
-from collections import Counter
+from transformers import BertTokenizer, BertForSequenceClassification, pipeline
+import torch
+import os
 
-# 文字清理函數（與訓練時一致）
-def clean_text(text):
-    text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"@\w+", "", text)
-    text = re.sub(r"#\w+", "", text)
-    text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
-    return text.lower().strip()
+def analyze_sentiment(comments_title):
+    # Step 1: Load cleaned data
+    # 取得目前腳本所在目錄（src 資料夾）
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # 專案根目錄（sentiment_analyzer）
+    project_root = os.path.dirname(script_dir)
+    # 建立 input 資料的完整路徑
+    data_path = os.path.join(project_root, "data", "input", f"{comments_title}_cleaned.csv")
+    df = pd.read_csv(data_path, header=None, names=["text"])
 
-# 1. 載入模型與向量器
-clf = joblib.load("models/model.pkl")
-vectorizer = joblib.load("models/vectorizer.pkl")
+    if 'text' not in df.columns:
+        raise ValueError("The input CSV must contain a 'text' column.")
 
-# 2. 讀取輸入留言檔（CSV 檔，須含欄位 'text'）
-input_file = sys.argv[1] if len(sys.argv) > 1 else "data/input_comments.csv"
-df = pd.read_csv(input_file)
+    # Step 2: Load model and tokenizer
+    model_dir = os.path.join(project_root, "models", "bert_multilang")
+    tokenizer = BertTokenizer.from_pretrained(model_dir)
+    model = BertForSequenceClassification.from_pretrained(model_dir)
 
-# 3. 清理留言文字
-df["text_clean"] = df["text"].apply(clean_text)
+  
+    # Step 3: Create sentiment analysis pipeline
+    sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer, device=0 if torch.cuda.is_available() else -1)
 
-# 4. 向量化並預測情緒
-X = vectorizer.transform(df["text_clean"])
-df["predicted"] = clf.predict(X)
+    # Step 4: Perform prediction
+    texts = df['text'].dropna().astype(str).tolist()
+    results = sentiment_pipeline(texts, truncation=True, padding=True)
+    # results = sentiment_pipeline(df['text'].tolist(), truncation=True, padding=True)
 
-# 5. 儲存結果為 result.csv
-df.to_csv("outputs/result.csv", index=False)
-print("✅ 已輸出 result.csv")
+    # Step 5: Count sentiments
+    sentiment_counts = {'POSITIVE': 0, 'NEGATIVE': 0}
+    for result in results:
+        label = result['label'].upper()
+        if label in sentiment_counts:
+            sentiment_counts[label] += 1
 
-# 6. 統計情緒比例
-count = Counter(df["predicted"])
-labels = ["Negative", "Positive"]
-sizes = [count.get(0, 0), count.get(1, 0)]
+    return sentiment_counts    # sentiment_counts
 
-# 7. 繪製圓餅圖
-plt.figure(figsize=(6, 6))
-plt.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
-plt.axis("equal")
-plt.title("Sentiment Distribution")
-plt.savefig("outputs/pie_chart.png")
-plt.show()
-
-# 8. 繪製長條圖
-import numpy as np
-
-plt.figure(figsize=(6, 4))
-bars = plt.bar(["Negative", "Positive"], sizes)
-
-# 在長條上方加上數字標籤
-for i, v in enumerate(sizes):
-    plt.text(i, v + 1, str(v), ha='center', va='bottom')
-
-plt.ylabel("Number of Comments")
-plt.title("Sentiment Classification Count")
-plt.savefig("outputs/bar_chart.png")
-plt.show()
+# Example:
+comments_title = 'test'      # YouTube_Rewind_2018
+result = analyze_sentiment(f"{comments_title}")
+print(result)
